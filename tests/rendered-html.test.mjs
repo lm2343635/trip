@@ -77,5 +77,6 @@ test("service worker never falls back to HTML for failed assets", async () => {
   const worker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
   assert.match(worker, /request\.mode === "navigate"/);
   assert.match(worker, /return Response\.error\(\)/);
-  assert.equal(worker.match(/caches\.match\("\/"\)/g)?.length, 1);
+  assert.match(worker, /self\.registration\.scope/);
+  assert.equal(worker.match(/caches\.match\(HOME\)/g)?.length, 1);
 });

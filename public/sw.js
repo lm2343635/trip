@@ -1,15 +1,20 @@
-const CACHE = "tohoku-trip-v3";
-const CORE = ["/", "/manifest.webmanifest", "/favicon.svg", "/og-v2.png", "/offline-assets.json"];
+const CACHE = "tohoku-trip-v4";
+const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
+const scoped = (path) => `${BASE_PATH}${path}`;
+const HOME = scoped("/");
+const CORE = [HOME, scoped("/manifest.webmanifest"), scoped("/favicon.svg"), scoped("/og-v2.png"), scoped("/offline-assets.json")];
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
-    const response = await fetch("/");
+    const response = await fetch(HOME);
     const html = await response.clone().text();
     const assets = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
       .map((match) => match[1])
-      .filter((url) => url.startsWith("/") && !url.startsWith("//"));
-    const offlineAssets = await fetch("/offline-assets.json").then((item) => item.json());
+      .filter((url) => url.startsWith(BASE_PATH + "/") && !url.startsWith("//"));
+    const offlineAssets = await fetch(scoped("/offline-assets.json"))
+      .then((item) => item.json())
+      .then((assets) => assets.map(scoped));
     const allAssets = [...new Set([...CORE, ...assets, ...offlineAssets])];
     for (let index = 0; index < allAssets.length; index += 12) {
       await cache.addAll(allAssets.slice(index, index + 12));
@@ -34,11 +39,11 @@ self.addEventListener("fetch", (event) => {
         const response = await fetch(event.request);
         if (response.ok) {
           const cache = await caches.open(CACHE);
-          cache.put("/", response.clone());
+          cache.put(HOME, response.clone());
         }
         return response;
       } catch {
-        return (await caches.match("/")) ?? Response.error();
+        return (await caches.match(HOME)) ?? Response.error();
       }
     }
     const cached = await caches.match(event.request);

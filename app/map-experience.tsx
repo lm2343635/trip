@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LayerGroup, Map as LeafletMap } from "leaflet";
+import { withBasePath } from "./base-path";
 
 type StopKind = "start" | "sight" | "shower" | "hotel" | "coast" | "city" | "optional" | "sleep";
 
@@ -154,7 +155,7 @@ export function MapExperience() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     if (process.env.NODE_ENV === "production") {
-      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+      navigator.serviceWorker.register(withBasePath("/sw.js")).catch(() => undefined);
       return;
     }
     navigator.serviceWorker.getRegistrations().then((registrations) => {
@@ -180,7 +181,7 @@ export function MapExperience() {
         maxBoundsViscosity: 0.7,
         preferCanvas: true,
       });
-      L.tileLayer("/tiles/std/{z}/{x}/{y}.png", {
+      L.tileLayer(withBasePath("/tiles/std/{z}/{x}/{y}.png"), {
         minZoom: 5,
         maxZoom: 9,
         noWrap: true,
