@@ -1,8 +1,8 @@
-const CACHE = "tohoku-trip-v4";
+const CACHE = "tohoku-trip-v5";
 const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
 const scoped = (path) => `${BASE_PATH}${path}`;
 const HOME = scoped("/");
-const CORE = [HOME, scoped("/manifest.webmanifest"), scoped("/favicon.svg"), scoped("/og-v2.png"), scoped("/offline-assets.json")];
+const CORE = [HOME, scoped("/manifest.webmanifest"), scoped("/favicon.svg"), scoped("/og-v2.png"), scoped("/offline-assets.json"), scoped("/place-assets.json")];
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
@@ -15,7 +15,10 @@ self.addEventListener("install", (event) => {
     const offlineAssets = await fetch(scoped("/offline-assets.json"))
       .then((item) => item.json())
       .then((assets) => assets.map(scoped));
-    const allAssets = [...new Set([...CORE, ...assets, ...offlineAssets])];
+    const placeAssets = await fetch(scoped("/place-assets.json"))
+      .then((item) => item.json())
+      .then((assets) => assets.map(scoped));
+    const allAssets = [...new Set([...CORE, ...assets, ...offlineAssets, ...placeAssets])];
     for (let index = 0; index < allAssets.length; index += 12) {
       await cache.addAll(allAssets.slice(index, index + 12));
     }

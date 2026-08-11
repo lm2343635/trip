@@ -73,10 +73,33 @@ test("all declared offline map tiles exist", async () => {
   await Promise.all(manifest.map((asset) => access(new URL(`../public/${asset.slice(1)}`, import.meta.url))));
 });
 
+test("every itinerary stop has a useful detail guide", async () => {
+  const source = await readFile(new URL("../app/place-details.ts", import.meta.url), "utf8");
+  const stopIds = ["tokyo", "goshikinuma", "naruko", "kaikatsu", "hachimantai", "towada", "oirase", "hakkoda", "aomoriya", "hachinohe", "kitayamazaki", "jodogahama", "goishi", "sendai"];
+  for (const stopId of stopIds) assert.match(source, new RegExp(`\\n  ${stopId}: \\{`), `missing detail guide for ${stopId}`);
+  assert.ok((source.match(/budget:/g) ?? []).length >= stopIds.length * 3, "every stop should have a main budget and two food budgets");
+  assert.ok((source.match(/label: /g) ?? []).length >= stopIds.length * 5, "details should include facts and external links");
+  assert.match(source, /附近|地图导航|官方/);
+});
+
+test("all local destination photos exist and are available to the offline cache", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../public/place-assets.json", import.meta.url), "utf8"));
+  assert.equal(manifest.length, 10);
+  assert.equal(new Set(manifest).size, manifest.length);
+  await Promise.all(manifest.map((asset) => access(new URL(`../public/${asset.slice(1)}`, import.meta.url))));
+
+  const ui = await readFile(new URL("../app/map-experience.tsx", import.meta.url), "utf8");
+  assert.match(ui, /role="dialog"/);
+  assert.match(ui, /aria-modal="true"/);
+  assert.match(ui, /附近吃什么/);
+  assert.match(ui, /2026-08 参考消费/);
+});
+
 test("service worker never falls back to HTML for failed assets", async () => {
   const worker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
   assert.match(worker, /request\.mode === "navigate"/);
   assert.match(worker, /return Response\.error\(\)/);
   assert.match(worker, /self\.registration\.scope/);
+  assert.match(worker, /place-assets\.json/);
   assert.equal(worker.match(/caches\.match\(HOME\)/g)?.length, 1);
 });

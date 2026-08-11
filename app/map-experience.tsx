@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LayerGroup, Map as LeafletMap } from "leaflet";
 import { withBasePath } from "./base-path";
+import { placeDetails } from "./place-details";
 
 type StopKind = "start" | "sight" | "shower" | "hotel" | "coast" | "city" | "optional" | "sleep";
 
@@ -144,13 +145,31 @@ export function MapExperience() {
   const [activeDay, setActiveDay] = useState("8/27");
   const [selectedId, setSelectedId] = useState("aomoriya");
   const [mapReady, setMapReady] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const mapElementRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const overlayRef = useRef<LayerGroup | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
 
   const activePlan = dayPlans.find((plan) => plan.day === activeDay) ?? dayPlans[0];
   const selectedStop = stopById.get(selectedId) ?? stops[0];
+  const selectedDetail = placeDetails[selectedStop.id];
+
+  useEffect(() => {
+    if (!detailOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDetailOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", closeOnEscape);
+    closeButtonRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [detailOpen]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -239,6 +258,7 @@ export function MapExperience() {
       marker.on("click", () => {
         setSelectedId(stop.id);
         setActiveDay(stop.day);
+        setDetailOpen(true);
         map.flyTo(stop.coords, Math.max(map.getZoom(), 8), { duration: 0.55 });
       });
     });
@@ -260,11 +280,13 @@ export function MapExperience() {
 
   function chooseStop(stop: Stop) {
     setSelectedId(stop.id);
-    setActiveDay(stop.day);
+    if (!activePlan.stopIds.includes(stop.id)) setActiveDay(stop.day);
+    setDetailOpen(true);
     mapRef.current?.flyTo(stop.coords, Math.max(mapRef.current.getZoom(), 8), { duration: 0.55 });
   }
 
-  function openFullPlan() {
+  function returnToDayPlan() {
+    setDetailOpen(false);
     setActiveDay(selectedStop.day);
     document.getElementById("day-detail")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
@@ -322,7 +344,7 @@ export function MapExperience() {
               <h2>{selectedStop.name}</h2>
               <p>{selectedStop.note}</p>
             </div>
-            <button type="button" onClick={openFullPlan}>查看当天完整行程</button>
+            <button type="button" onClick={() => setDetailOpen(true)} aria-label={`查看${selectedStop.name}图文攻略`}>查看图文攻略</button>
           </article>
           <a className="map-attribution" href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地图：国土地理院</a>
         </div>
@@ -337,9 +359,9 @@ export function MapExperience() {
 
           <div className="day-stop-list">
             {activeStops.map((stop) => (
-              <button key={stop.id} type="button" className={selectedId === stop.id ? "is-active" : ""} onClick={() => chooseStop(stop)}>
+              <button key={stop.id} type="button" className={selectedId === stop.id ? "is-active" : ""} onClick={() => chooseStop(stop)} aria-label={`查看${stop.name}详细介绍`}>
                 <span className={`mini-pin kind-${stop.kind}`}>{stop.number}</span>
-                <span><b>{stop.name}</b><small>{kindLabel(stop.kind)} · 点击定位</small></span>
+                <span><b>{stop.name}</b><small>{kindLabel(stop.kind)} · 点击查看攻略</small></span>
               </button>
             ))}
           </div>
@@ -365,6 +387,92 @@ export function MapExperience() {
           </div>
         </aside>
       </section>
+
+      {detailOpen && selectedDetail && (
+        <div
+          className="place-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDetailOpen(false);
+          }}
+        >
+          <article className="place-modal" role="dialog" aria-modal="true" aria-labelledby="place-detail-title">
+            <button ref={closeButtonRef} className="place-modal-close" type="button" onClick={() => setDetailOpen(false)} aria-label="关闭景点详情">×</button>
+
+            <div className={selectedDetail.image ? "place-hero" : "place-hero place-no-photo"}>
+              {selectedDetail.image ? (
+                <>
+                  {/* Local files are intentionally used so destination photography remains available offline. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={withBasePath(selectedDetail.image.src)} alt={selectedDetail.image.alt} />
+                  <a className="photo-credit" href={selectedDetail.image.sourceUrl} target="_blank" rel="noreferrer">
+                    摄影：{selectedDetail.image.credit} · {selectedDetail.image.license}
+                  </a>
+                </>
+              ) : (
+                <div className="place-no-photo-copy" aria-hidden="true">
+                  <span>{selectedStop.day}</span>
+                  <b>{selectedStop.number}</b>
+                  <small>{kindLabel(selectedStop.kind)}</small>
+                </div>
+              )}
+            </div>
+
+            <div className="place-content">
+              <header className="place-title-block">
+                <p className="place-kicker">{selectedStop.day} · {kindLabel(selectedStop.kind)} · TOHOKU ROAD TRIP</p>
+                <h2 id="place-detail-title">{selectedStop.name}</h2>
+                <p className="place-tagline">{selectedDetail.tagline}</p>
+                <p className="place-overview">{selectedDetail.overview}</p>
+              </header>
+
+              <dl className="place-facts">
+                {selectedDetail.facts.map((fact) => (
+                  <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
+                ))}
+              </dl>
+
+              <section className="place-budget" aria-labelledby="budget-title">
+                <span aria-hidden="true">¥</span>
+                <div><h3 id="budget-title">2026-08 参考消费</h3><p>{selectedDetail.budget}</p></div>
+              </section>
+
+              <section className="place-section" aria-labelledby="food-title">
+                <div className="place-section-heading"><span>LOCAL FOOD</span><h3 id="food-title">附近吃什么</h3></div>
+                <div className="food-grid">
+                  {selectedDetail.foods.map((food) => (
+                    <article className="food-card" key={food.name}>
+                      <div><h4>{food.name}</h4><b>{food.budget}</b></div>
+                      <p>{food.description}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="place-section" aria-labelledby="tips-title">
+                <div className="place-section-heading"><span>BEFORE YOU GO</span><h3 id="tips-title">到访提示</h3></div>
+                <ul className="place-tips">
+                  {selectedDetail.tips.map((tip) => <li key={tip}>{tip}</li>)}
+                </ul>
+              </section>
+
+              <section className="place-section" aria-labelledby="links-title">
+                <div className="place-section-heading"><span>OFFICIAL & MAPS</span><h3 id="links-title">继续了解</h3></div>
+                <div className="place-links">
+                  {selectedDetail.links.map((link) => (
+                    <a className="place-link" key={link.url} href={link.url} target="_blank" rel="noreferrer"><span>{link.label}</span><b aria-hidden="true">↗</b></a>
+                  ))}
+                </div>
+              </section>
+
+              <div className="place-modal-actions">
+                <p>费用、营业时间与交通限制可能临时变化，出发前请以官方链接为准。</p>
+                <button type="button" onClick={returnToDayPlan}>回到当天行程</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      )}
 
       <footer>
         <p>路线用于行程规划展示，不替代当天实时导航、道路管制及天气判断。</p>
