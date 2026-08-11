@@ -1,4 +1,4 @@
-const CACHE = "tohoku-trip-v2";
+const CACHE = "tohoku-trip-v3";
 const CORE = ["/", "/manifest.webmanifest", "/favicon.svg", "/og-v2.png", "/offline-assets.json"];
 
 self.addEventListener("install", (event) => {
@@ -29,6 +29,18 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   event.respondWith((async () => {
+    if (event.request.mode === "navigate") {
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) {
+          const cache = await caches.open(CACHE);
+          cache.put("/", response.clone());
+        }
+        return response;
+      } catch {
+        return (await caches.match("/")) ?? Response.error();
+      }
+    }
     const cached = await caches.match(event.request);
     if (cached) return cached;
     try {
@@ -39,7 +51,7 @@ self.addEventListener("fetch", (event) => {
       }
       return response;
     } catch {
-      return (await caches.match("/")) ?? Response.error();
+      return Response.error();
     }
   })());
 });

@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-css-tags -- Vite development needs direct CSS responses for linked stylesheets. */
 import type { Metadata } from "next";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
@@ -27,6 +28,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
+      {process.env.NODE_ENV === "development" && (
+        <head>
+          <link rel="stylesheet" href="/node_modules/leaflet/dist/leaflet.css?direct" />
+          <link rel="stylesheet" href="/app/globals.css?direct" />
+        </head>
+      )}
       <body>{children}</body>
     </html>
   );

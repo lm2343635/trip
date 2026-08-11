@@ -152,7 +152,17 @@ export function MapExperience() {
   const selectedStop = stopById.get(selectedId) ?? stops[0];
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    if (!("serviceWorker" in navigator)) return;
+    if (process.env.NODE_ENV === "production") {
+      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+      return;
+    }
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => registration.unregister());
+    });
+    if ("caches" in window) {
+      caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("tohoku-trip-")).map((key) => caches.delete(key))));
+    }
   }, []);
 
   useEffect(() => {
