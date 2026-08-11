@@ -1,0 +1,10 @@
+{
+  "name": "东北自驾路线图",
+  "short_name": "东北路线",
+  "description": "8/23–8/29 日本东北自驾行程离线地图",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f1e8",
+  "theme_color": "#17233b",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
