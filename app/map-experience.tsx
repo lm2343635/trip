@@ -1,263 +1,363 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { geoCentroid, geoMercator, geoPath, type GeoPermissibleObjects } from "d3-geo";
-import geoData from "./tohoku-geojson.json";
+import type { LayerGroup, Map as LeafletMap } from "leaflet";
+
+type StopKind = "start" | "sight" | "shower" | "hotel" | "coast" | "city" | "optional" | "sleep";
 
 type Stop = {
   id: string;
+  number: string;
   name: string;
-  shortName: string;
   day: string;
-  date: string;
-  kind: "start" | "sight" | "shower" | "hotel" | "coast" | "city" | "optional";
+  kind: StopKind;
   coords: [number, number];
   note: string;
-  order?: number;
 };
 
-type ViewState = { scale: number; x: number; y: number };
-
-const WIDTH = 660;
-const HEIGHT = 920;
-const MIN_SCALE = 1;
-const MAX_SCALE = 4.5;
+type DayPlan = {
+  day: string;
+  weekday: string;
+  kicker: string;
+  theme: string;
+  route: string;
+  details: { label: string; text: string }[];
+  stopIds: string[];
+};
 
 const stops: Stop[] = [
-  { id: "tokyo", name: "东京", shortName: "东京", day: "8/23", date: "8月23日 · 周日夜", kind: "start", coords: [139.6917, 35.6895], note: "洗澡后出发，沿东北道北上；夜间在高速 SA / PA 休息。" },
-  { id: "goshikinuma", name: "五色沼", shortName: "五色沼", day: "8/24", date: "8月24日 · 周一", kind: "sight", coords: [140.057, 37.655], note: "当天主景点。傍晚前往鸣子方向，夜宿鸣子周边。", order: 1 },
-  { id: "naruko", name: "鸣子峡", shortName: "鸣子峡", day: "8/25", date: "8月25日 · 周二", kind: "sight", coords: [140.71, 38.74], note: "上午游览后继续北上盛冈。", order: 2 },
-  { id: "kaikatsu", name: "快活CLUB 盛岡上堂店", shortName: "快活CLUB", day: "8/25", date: "8月25日 · 周二", kind: "shower", coords: [141.145, 39.735], note: "固定淋浴点：确保在青森屋入住前至少安排一次快活CLUB。" },
-  { id: "hachimantai", name: "八幡平", shortName: "八幡平", day: "8/25", date: "8月25日 · 周二", kind: "sight", coords: [140.85, 39.96], note: "下午由盛冈前往八幡平，之后向鹿角 / 十和田方向推进。", order: 3 },
-  { id: "towada", name: "十和田湖", shortName: "十和田湖", day: "8/26", date: "8月26日 · 周三", kind: "sight", coords: [140.88, 40.46], note: "与奥入濑溪流组成当天的深度游路线。", order: 4 },
-  { id: "oirase", name: "奥入濑溪流", shortName: "奥入濑", day: "8/26", date: "8月26日 · 周三", kind: "sight", coords: [140.99, 40.53], note: "当天重点景点；晚间在十和田 / 七户 / 八甲田周边休息。", order: 5 },
-  { id: "hakkoda", name: "八甲田", shortName: "八甲田（候选）", day: "8/27", date: "8月27日 · 周四", kind: "optional", coords: [140.86, 40.65], note: "仅作为天气良好时的上午候选，不是硬性主线。" },
-  { id: "aomoriya", name: "星野リゾート 青森屋", shortName: "青森屋", day: "8/27", date: "8月27日 · 周四", kind: "hotel", coords: [141.37, 40.68], note: "14:00–14:30 抵达停车场；15:00 入住。8/28 中午 12:00 退房。" },
-  { id: "hachinohe", name: "八户", shortName: "八户", day: "8/28", date: "8月28日 · 周五", kind: "city", coords: [141.49, 40.51], note: "青森屋退房后由此进入三陆沿岸道路 E45。" },
-  { id: "kitayamazaki", name: "北山崎", shortName: "北山崎", day: "8/28", date: "8月28日 · 周五", kind: "coast", coords: [141.97, 39.96], note: "三陆返程景点 A；视当天时间安排停留。" },
-  { id: "jodogahama", name: "净土之滨", shortName: "净土之滨", day: "8/28", date: "8月28日 · 周五", kind: "coast", coords: [141.98, 39.65], note: "三陆返程景点 B；沿 E45 南下。" },
-  { id: "goishi", name: "碁石海岸", shortName: "碁石海岸", day: "8/28", date: "8月28日 · 周五", kind: "coast", coords: [141.73, 39.0], note: "三陆返程景点 C；之后继续向气仙沼 / 仙台推进。" },
-  { id: "sendai", name: "仙台", shortName: "仙台", day: "8/29", date: "8月29日 · 周六", kind: "city", coords: [140.87, 38.27], note: "完成三陆沿岸段后回到主线，白天返回东京。" },
+  { id: "tokyo", number: "起", name: "东京", day: "8/23", kind: "start", coords: [35.6895, 139.6917], note: "晚上出发。出发前已洗澡，当晚不再安排洗澡；沿东北道向福岛方向推进。" },
+  { id: "goshikinuma", number: "01", name: "五色沼", day: "8/24", kind: "sight", coords: [37.655, 140.057], note: "去程必须保留的景点。游览后继续向鸣子温泉方向移动。" },
+  { id: "naruko", number: "02", name: "鸣子峡", day: "8/25", kind: "sight", coords: [38.740, 140.710], note: "上午重点景点。之后经盛冈继续前往八幡平。" },
+  { id: "kaikatsu", number: "浴", name: "快活CLUB 盛岡上堂店", day: "8/25", kind: "shower", coords: [39.735, 141.145], note: "固定淋浴点：8/25 使用，满足青森屋入住前至少一次快活CLUB的要求。" },
+  { id: "hachimantai", number: "03", name: "八幡平", day: "8/25", kind: "sight", coords: [39.960, 140.850], note: "下午游览；晚间向鹿角、八幡平西侧或十和田方向推进并车中过夜。" },
+  { id: "towada", number: "04", name: "十和田湖", day: "8/26", kind: "sight", coords: [40.460, 140.880], note: "与奥入濑溪流组成当天的深度游路线。" },
+  { id: "oirase", number: "05", name: "奥入濑溪流", day: "8/26", kind: "sight", coords: [40.530, 140.990], note: "当天重点景点；洗澡安排十和田市周边日归温泉。" },
+  { id: "hakkoda", number: "候", name: "八甲田（候选）", day: "8/27", kind: "optional", coords: [40.650, 140.860], note: "仅在天气和时间合适时安排，不是硬性主线。" },
+  { id: "aomoriya", number: "宿", name: "星野リゾート 青森屋", day: "8/27", kind: "hotel", coords: [40.680, 141.370], note: "8/27 14:00–14:30抵达停车场，15:00办理入住；8/28中午12:00退房。" },
+  { id: "hachinohe", number: "转", name: "八户", day: "8/28", kind: "city", coords: [40.510, 141.490], note: "青森屋退房后经八户进入三陆沿岸道路 E45。" },
+  { id: "kitayamazaki", number: "A", name: "北山崎", day: "8/28", kind: "coast", coords: [39.960, 141.970], note: "三陆返程景点 A。按顺路性和当天时间安排停留。" },
+  { id: "jodogahama", number: "B", name: "净土之滨", day: "8/28", kind: "coast", coords: [39.650, 141.980], note: "三陆返程景点 B。继续沿 E45 向宫古以南推进。" },
+  { id: "goishi", number: "C", name: "碁石海岸", day: "8/28", kind: "coast", coords: [39.000, 141.730], note: "三陆返程景点 C。之后向大船渡、气仙沼或仙台北推进。" },
+  { id: "sendai", number: "转", name: "仙台", day: "8/29", kind: "city", coords: [38.268, 140.869], note: "若8/28未完成三陆景点，可在早上顺延；之后以白天返回东京为目标。" },
 ];
 
-const outbound = [
-  [139.6917, 35.6895], [139.88, 36.56], [140.16, 37.15], [140.057, 37.655],
-  [140.42, 38.0], [140.71, 38.74], [141.145, 39.735], [140.85, 39.96],
-  [140.88, 40.46], [140.99, 40.53], [141.37, 40.68],
-] as [number, number][];
+const dayPlans: DayPlan[] = [
+  {
+    day: "8/23", weekday: "周日夜", kicker: "DAY 01", theme: "东京出发 · 夜间北上",
+    route: "东京 → 东北道 → 福岛方向",
+    stopIds: ["tokyo"],
+    details: [
+      { label: "出发", text: "晚上从东京出发，沿东北道北上，往福岛方向推进。" },
+      { label: "洗澡", text: "出发前已经洗好澡，当晚不再安排洗澡。" },
+      { label: "过夜", text: "车中过夜，优先选择高速 SA / PA 或其他合适休息点。" },
+    ],
+  },
+  {
+    day: "8/24", weekday: "周一", kicker: "DAY 02", theme: "五色沼 + 鸣子温泉方向",
+    route: "东京北上 → 五色沼 → 鸣子方向",
+    stopIds: ["goshikinuma"],
+    details: [
+      { label: "重点", text: "五色沼是确定保留的去程景点。" },
+      { label: "晚上", text: "在鸣子周边活动，可逛温泉街。" },
+      { label: "洗澡", text: "优先安排当地日归温泉。" },
+      { label: "过夜", text: "鸣子周边车中过夜。" },
+    ],
+  },
+  {
+    day: "8/25", weekday: "周二", kicker: "DAY 03", theme: "鸣子峡 + 盛冈淋浴 + 八幡平",
+    route: "鸣子峡 → 盛冈 → 快活CLUB盛岡上堂店 → 八幡平 → 鹿角方向",
+    stopIds: ["naruko", "kaikatsu", "hachimantai"],
+    details: [
+      { label: "景点", text: "鸣子峡和八幡平都是当天必须保留的重点。" },
+      { label: "洗澡", text: "固定在快活CLUB 盛岡上堂店淋浴，日期为8/25。" },
+      { label: "约束", text: "这一站用于确保入住青森屋之前至少安排一次快活CLUB。" },
+      { label: "过夜", text: "鹿角、八幡平西侧或十和田方向车中过夜。" },
+    ],
+  },
+  {
+    day: "8/26", weekday: "周三", kicker: "DAY 04", theme: "十和田湖 + 奥入濑溪流深度游",
+    route: "鹿角方向 → 十和田湖 → 奥入濑溪流",
+    stopIds: ["towada", "oirase"],
+    details: [
+      { label: "重点", text: "十和田湖与奥入濑溪流组成全天核心行程。" },
+      { label: "洗澡", text: "安排十和田市周边日归温泉。" },
+      { label: "过夜", text: "十和田、七户或八甲田周边车中过夜。" },
+    ],
+  },
+  {
+    day: "8/27", weekday: "周四", kicker: "DAY 05", theme: "轻松活动 → 青森屋",
+    route: "八甲田候选 / 轻量活动 → 三泽 → 青森屋",
+    stopIds: ["hakkoda", "aomoriya"],
+    details: [
+      { label: "上午", text: "视天气选择八甲田或其他轻量活动；八甲田只作为候选。" },
+      { label: "硬约束", text: "14:00–14:30抵达青森屋停车场，15:00办理入住。" },
+      { label: "住宿", text: "当晚入住星野リゾート 青森屋，洗澡也在青森屋完成。" },
+    ],
+  },
+  {
+    day: "8/28", weekday: "周五", kicker: "DAY 06", theme: "退房 → 三陆道返程",
+    route: "青森屋 → 八户 → 北山崎 → 净土之滨 → 碁石海岸 → 继续南下",
+    stopIds: ["aomoriya", "hachinohe", "kitayamazaki", "jodogahama", "goishi"],
+    details: [
+      { label: "硬约束", text: "中午12:00从青森屋退房。" },
+      { label: "道路", text: "返程必须走三陆沿岸道路 E45 / 三陆道。" },
+      { label: "景点", text: "按顺路性保留北山崎、净土之滨和碁石海岸。" },
+      { label: "晚间目标", text: "推进到宫古以南、大船渡、气仙沼或仙台北，按当天强度决定。" },
+      { label: "过夜", text: "在三陆道沿线选择合适休息点车中过夜。" },
+    ],
+  },
+  {
+    day: "8/29", weekday: "周六", kicker: "DAY 07", theme: "三陆道 / 仙台 → 东京",
+    route: "继续南下 → 仙台 → 东京",
+    stopIds: ["sendai", "tokyo"],
+    details: [
+      { label: "补充", text: "如果8/28来不及，可把部分三陆景点顺延到8/29早上。" },
+      { label: "目标", text: "总体仍以8/29白天返回东京为目标。" },
+    ],
+  },
+];
 
-const returnRoute = [
-  [141.37, 40.68], [141.49, 40.51], [141.78, 40.2], [141.97, 39.96],
-  [141.98, 39.65], [141.82, 39.3], [141.73, 39.0], [141.45, 38.66],
-  [141.17, 38.43], [140.87, 38.27], [140.91, 37.2], [140.45, 36.1], [139.6917, 35.6895],
-] as [number, number][];
+const outbound: [number, number][] = [
+  [35.6895, 139.6917], [36.15, 139.75], [36.56, 139.88], [37.05, 140.05], [37.50, 140.32],
+  [37.655, 140.057], [37.82, 140.35], [38.10, 140.63], [38.35, 140.72], [38.740, 140.710],
+  [38.98, 140.94], [39.28, 141.12], [39.735, 141.145], [39.82, 141.03], [39.960, 140.850],
+  [40.17, 140.78], [40.46, 140.88], [40.530, 140.990], [40.61, 141.12], [40.680, 141.370],
+];
 
-const optionalRoute = [[140.99, 40.53], [140.86, 40.65], [141.37, 40.68]] as [number, number][];
-const days = ["全部", "8/23", "8/24", "8/25", "8/26", "8/27", "8/28", "8/29"];
-const prefectureNames: Record<string, string> = { 青森県: "青森", 岩手県: "岩手", 宮城県: "宫城", 秋田県: "秋田", 山形県: "山形", 福島県: "福岛", 新潟県: "新潟", 群馬県: "群马", 栃木県: "栃木", 茨城県: "茨城", 埼玉県: "埼玉", 東京都: "东京", 千葉県: "千叶" };
+const returnRoute: [number, number][] = [
+  [40.680, 141.370], [40.510, 141.490], [40.32, 141.73], [40.10, 141.82], [39.960, 141.970],
+  [39.82, 141.96], [39.650, 141.980], [39.43, 141.94], [39.22, 141.86], [39.000, 141.730],
+  [38.82, 141.60], [38.60, 141.50], [38.39, 141.30], [38.268, 140.869], [37.85, 140.91],
+  [37.40, 140.96], [36.92, 140.88], [36.45, 140.30], [36.05, 139.92], [35.6895, 139.6917],
+];
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
+const optionalRoute: [number, number][] = [[40.530, 140.990], [40.650, 140.860], [40.68, 141.10], [40.680, 141.370]];
+const stopById = new Map(stops.map((stop) => [stop.id, stop]));
 
-function kindLabel(kind: Stop["kind"]) {
-  return { start: "起点", sight: "景点", shower: "淋浴", hotel: "住宿", coast: "三陆景点", city: "途经", optional: "候选" }[kind];
+function kindLabel(kind: StopKind) {
+  return { start: "起点", sight: "景点", shower: "淋浴", hotel: "酒店", coast: "三陆景点", city: "途经", optional: "候选", sleep: "过夜" }[kind];
 }
 
 export function MapExperience() {
-  const [selectedDay, setSelectedDay] = useState("全部");
+  const [activeDay, setActiveDay] = useState("8/27");
   const [selectedId, setSelectedId] = useState("aomoriya");
-  const [view, setView] = useState<ViewState>({ scale: 1, x: 0, y: 0 });
-  const svgRef = useRef<SVGSVGElement>(null);
-  const pointers = useRef(new Map<number, { x: number; y: number }>());
-  const gestureStart = useRef<{ view: ViewState; distance?: number; midpoint?: { x: number; y: number } }>();
+  const [mapReady, setMapReady] = useState(false);
+  const mapElementRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const overlayRef = useRef<LayerGroup | null>(null);
+  const leafletRef = useRef<typeof import("leaflet") | null>(null);
+
+  const activePlan = dayPlans.find((plan) => plan.day === activeDay) ?? dayPlans[0];
+  const selectedStop = stopById.get(selectedId) ?? stops[0];
 
   useEffect(() => {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
   }, []);
 
-  const geography = useMemo(() => {
-    const collection = geoData as unknown as GeoPermissibleObjects;
-    const projection = geoMercator().fitExtent([[42, 28], [618, 892]], collection);
-    const path = geoPath(projection);
-    return { projection, path };
+  useEffect(() => {
+    let cancelled = false;
+    async function setupMap() {
+      if (!mapElementRef.current || mapRef.current) return;
+      const L = await import("leaflet");
+      if (cancelled || !mapElementRef.current) return;
+      leafletRef.current = L;
+      const map = L.map(mapElementRef.current, {
+        zoomControl: false,
+        minZoom: 5,
+        maxZoom: 9,
+        maxBounds: [[34.9, 137.7], [41.7, 143.0]],
+        maxBoundsViscosity: 0.7,
+        preferCanvas: true,
+      });
+      L.tileLayer("/tiles/std/{z}/{x}/{y}.png", {
+        minZoom: 5,
+        maxZoom: 9,
+        noWrap: true,
+        keepBuffer: 5,
+        bounds: [[35.25, 138.2], [41.35, 142.55]],
+        attribution: "地理院タイル",
+      }).addTo(map);
+      L.control.zoom({ position: "topright" }).addTo(map);
+      map.fitBounds([[35.45, 139.25], [41.00, 142.15]], { padding: [28, 28] });
+      mapRef.current = map;
+      overlayRef.current = L.layerGroup().addTo(map);
+      setMapReady(true);
+    }
+    setupMap();
+    return () => {
+      cancelled = true;
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
   }, []);
 
-  const selectedStop = stops.find((stop) => stop.id === selectedId) ?? stops[0];
-  const visibleStops = selectedDay === "全部" ? stops : stops.filter((stop) => stop.day === selectedDay);
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+    const overlay = overlayRef.current;
+    if (!L || !map || !overlay || !mapReady) return;
+    overlay.clearLayers();
 
-  function clientToMap(clientX: number, clientY: number) {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    return { x: ((clientX - rect.left) / rect.width) * WIDTH, y: ((clientY - rect.top) / rect.height) * HEIGHT };
-  }
+    const outboundMuted = activeDay === "8/28" || activeDay === "8/29";
+    const returnMuted = ["8/23", "8/24", "8/25", "8/26", "8/27"].includes(activeDay);
+    const addRoute = (points: [number, number][], color: string, options: { muted?: boolean; dash?: string } = {}) => {
+      L.polyline(points, { color: "#fffdf7", weight: 9, opacity: options.muted ? 0.28 : 0.92, interactive: false }).addTo(overlay);
+      L.polyline(points, { color, weight: 5, opacity: options.muted ? 0.22 : 0.95, dashArray: options.dash, lineCap: "round", lineJoin: "round", interactive: false }).addTo(overlay);
+    };
+    addRoute(outbound, "#1559c7", { muted: outboundMuted });
+    addRoute(returnRoute, "#7b3fba", { muted: returnMuted });
+    addRoute(optionalRoute, "#5b6d7b", { muted: activeDay !== "8/27", dash: "7 9" });
 
-  function zoomAt(nextScale: number, point = { x: WIDTH / 2, y: HEIGHT / 2 }) {
-    setView((current) => {
-      const scale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
-      const x = point.x - ((point.x - current.x) / current.scale) * scale;
-      const y = point.y - ((point.y - current.y) / current.scale) * scale;
-      return scale === 1 ? { scale: 1, x: 0, y: 0 } : { scale, x, y };
-    });
-  }
-
-  function focusStop(stop: Stop) {
-    const point = geography.projection(stop.coords);
-    if (!point) return;
-    const scale = 2.15;
-    setSelectedId(stop.id);
-    setView({ scale, x: WIDTH / 2 - point[0] * scale, y: HEIGHT / 2 - point[1] * scale });
-  }
-
-  function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    pointers.current.set(event.pointerId, clientToMap(event.clientX, event.clientY));
-    const points = [...pointers.current.values()];
-    gestureStart.current = points.length === 2
-      ? { view, ...pinchData(points) }
-      : { view, midpoint: points[0] };
-  }
-
-  function pinchData(points: { x: number; y: number }[]) {
-    const [a, b] = points;
-    return { distance: Math.hypot(b.x - a.x, b.y - a.y), midpoint: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
-  }
-
-  function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
-    if (!pointers.current.has(event.pointerId) || !gestureStart.current) return;
-    pointers.current.set(event.pointerId, clientToMap(event.clientX, event.clientY));
-    const points = [...pointers.current.values()];
-    const start = gestureStart.current;
-    if (points.length === 1) {
-      const original = start.midpoint ?? points[0];
-      setView({ ...start.view, x: start.view.x + points[0].x - original.x, y: start.view.y + points[0].y - original.y });
-      return;
-    }
-    if (points.length === 2 && start.distance && start.midpoint) {
-      const current = pinchData(points);
-      const scale = clamp(start.view.scale * (current.distance / start.distance), MIN_SCALE, MAX_SCALE);
-      setView({
-        scale,
-        x: current.midpoint.x - ((start.midpoint.x - start.view.x) / start.view.scale) * scale,
-        y: current.midpoint.y - ((start.midpoint.y - start.view.y) / start.view.scale) * scale,
+    stops.forEach((stop) => {
+      const visible = stop.day === activeDay || (activeDay === "8/29" && stop.id === "tokyo") || (activeDay === "8/28" && stop.id === "aomoriya");
+      const selected = stop.id === selectedId;
+      const icon = L.divIcon({
+        className: "trip-marker-shell",
+        html: `<span class="trip-marker kind-${stop.kind}${selected ? " is-selected" : ""}${visible ? "" : " is-muted"}"><b>${stop.number}</b></span>`,
+        iconSize: selected ? [42, 42] : [34, 34],
+        iconAnchor: selected ? [21, 21] : [17, 17],
       });
+      const marker = L.marker(stop.coords, { icon, riseOnHover: true, zIndexOffset: selected ? 1000 : visible ? 400 : 0 }).addTo(overlay);
+      marker.bindTooltip(stop.name, {
+        permanent: visible,
+        direction: stop.coords[1] > 141.25 ? "left" : "right",
+        offset: stop.coords[1] > 141.25 ? [-17, 0] : [17, 0],
+        className: `place-label${visible ? "" : " is-muted"}`,
+      });
+      marker.on("click", () => {
+        setSelectedId(stop.id);
+        setActiveDay(stop.day);
+        map.flyTo(stop.coords, Math.max(map.getZoom(), 8), { duration: 0.55 });
+      });
+    });
+  }, [activeDay, selectedId, mapReady]);
+
+  const activeStops = useMemo(() => activePlan.stopIds.map((id) => stopById.get(id)).filter((stop): stop is Stop => Boolean(stop)), [activePlan]);
+
+  function chooseDay(day: string) {
+    const plan = dayPlans.find((candidate) => candidate.day === day);
+    if (!plan) return;
+    setActiveDay(day);
+    const planStops = plan.stopIds.map((id) => stopById.get(id)).filter((stop): stop is Stop => Boolean(stop));
+    if (planStops[0]) setSelectedId(planStops[0].id);
+    if (mapRef.current && planStops.length) {
+      const bounds = planStops.map((stop) => stop.coords);
+      mapRef.current.fitBounds(bounds, { padding: [90, 90], maxZoom: 8, animate: true });
     }
   }
 
-  function handlePointerUp(event: React.PointerEvent<SVGSVGElement>) {
-    pointers.current.delete(event.pointerId);
-    const points = [...pointers.current.values()];
-    gestureStart.current = points.length ? { view, midpoint: points[0] } : undefined;
+  function chooseStop(stop: Stop) {
+    setSelectedId(stop.id);
+    setActiveDay(stop.day);
+    mapRef.current?.flyTo(stop.coords, Math.max(mapRef.current.getZoom(), 8), { duration: 0.55 });
+  }
+
+  function openFullPlan() {
+    setActiveDay(selectedStop.day);
+    document.getElementById("day-detail")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   return (
     <main className="trip-shell">
       <header className="trip-header">
         <div>
-          <p className="eyebrow">8/23 — 8/29 · DRIVE NORTH</p>
-          <h1>东北自驾路线图</h1>
-          <p className="subtitle">东京出发，穿过山湖与溪流，再沿三陆海岸回家。</p>
+          <p className="eyebrow">TOHOKU · 8/23—8/29 · 7 DAYS</p>
+          <h1>东北自驾行程地图</h1>
+          <p className="subtitle">东京北上，经五色沼、八幡平与奥入濑，沿三陆海岸 E45 返回。</p>
         </div>
-        <div className="header-facts" aria-label="行程摘要">
-          <span><strong>7</strong> 天</span>
-          <span><strong>14</strong> 个标注</span>
-          <span className="offline-mark"><i /> 可离线</span>
+        <div className="hard-deadlines" aria-label="关键时间">
+          <span><b>8/27 · 15:00</b> 青森屋入住</span>
+          <span><b>8/28 · 12:00</b> 青森屋退房</span>
         </div>
       </header>
 
-      <nav className="day-filter" aria-label="按日期查看">
-        {days.map((day) => (
-          <button key={day} type="button" aria-pressed={selectedDay === day} onClick={() => setSelectedDay(day)}>{day}</button>
-        ))}
-      </nav>
+      <section className="route-ribbon" aria-label="路线总览">
+        <div><span>去程</span><p>东京 → 五色沼 → 鸣子峡 → 盛冈 → 八幡平 → 十和田 → 青森屋</p></div>
+        <div><span>返程</span><p>青森屋 → 八户 → 北山崎 → 净土之滨 → 碁石海岸 → 仙台 → 东京</p></div>
+        <div className="offline-status"><i /> 地图与行程已内置，可离线查看</div>
+      </section>
 
-      <section className="workspace">
-        <aside className="itinerary-panel" aria-label="行程标注">
-          <div className="panel-heading">
-            <p>路线标注</p>
-            <span>{selectedDay === "全部" ? "全程" : selectedDay}</span>
+      <section className="map-workspace">
+        <nav className="day-rail" aria-label="选择日期">
+          <div className="rail-heading"><span>行程</span><small>ITINERARY</small></div>
+          {dayPlans.map((plan) => (
+            <button key={plan.day} type="button" className={activeDay === plan.day ? "is-active" : ""} aria-pressed={activeDay === plan.day} onClick={() => chooseDay(plan.day)}>
+              <span className="rail-day"><b>{plan.day}</b><small>{plan.weekday}</small></span>
+              <span className="rail-theme">{plan.theme}</span>
+              <span aria-hidden="true">›</span>
+            </button>
+          ))}
+          <div className="rail-key">
+            <span><i className="key-dot sight" />景点</span>
+            <span><i className="key-dot shower" />淋浴</span>
+            <span><i className="key-dot hotel" />酒店</span>
+            <span><i className="key-dot coast" />三陆</span>
           </div>
-          <div className="stop-list">
-            {visibleStops.map((stop) => (
-              <button key={stop.id} type="button" className={`stop-row ${selectedId === stop.id ? "is-active" : ""}`} onClick={() => focusStop(stop)}>
-                <span className={`stop-symbol kind-${stop.kind}`}>{stop.order ?? (stop.kind === "hotel" ? "宿" : "•")}</span>
-                <span>
-                  <strong>{stop.name}</strong>
-                  <small>{stop.day} · {kindLabel(stop.kind)}</small>
-                </span>
-                <span className="row-arrow" aria-hidden="true">↗</span>
+        </nav>
+
+        <div className="map-panel">
+          <div ref={mapElementRef} className="leaflet-map" aria-label="可缩放的日本东北自驾地图" />
+          {!mapReady && <div className="map-loading">正在加载离线地图…</div>}
+          <div className="map-legend" aria-label="路线图例">
+            <span><i className="route-swatch outbound" />去程</span>
+            <span><i className="route-swatch returning" />三陆 E45 返程</span>
+            <span><i className="route-swatch optional" />候选</span>
+          </div>
+          <article className="map-selection" aria-live="polite">
+            <div className={`selection-code kind-${selectedStop.kind}`}>{selectedStop.number}</div>
+            <div>
+              <span>{selectedStop.day} · {kindLabel(selectedStop.kind)}</span>
+              <h2>{selectedStop.name}</h2>
+              <p>{selectedStop.note}</p>
+            </div>
+            <button type="button" onClick={openFullPlan}>查看当天完整行程</button>
+          </article>
+          <a className="map-attribution" href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地图：国土地理院</a>
+        </div>
+
+        <aside className="day-detail" id="day-detail" aria-live="polite">
+          <div className="detail-heading">
+            <span>{activePlan.kicker}</span>
+            <div><b>{activePlan.day}</b><small>{activePlan.weekday}</small></div>
+          </div>
+          <h2>{activePlan.theme}</h2>
+          <div className="route-copy"><span>ROUTE</span><p>{activePlan.route}</p></div>
+
+          <div className="day-stop-list">
+            {activeStops.map((stop) => (
+              <button key={stop.id} type="button" className={selectedId === stop.id ? "is-active" : ""} onClick={() => chooseStop(stop)}>
+                <span className={`mini-pin kind-${stop.kind}`}>{stop.number}</span>
+                <span><b>{stop.name}</b><small>{kindLabel(stop.kind)} · 点击定位</small></span>
               </button>
             ))}
           </div>
-          <article className="stop-detail" aria-live="polite">
-            <p className="detail-date">{selectedStop.date}</p>
-            <h2>{selectedStop.name}</h2>
-            <p>{selectedStop.note}</p>
-          </article>
+
+          <div className="plan-details">
+            {activePlan.details.map((detail) => (
+              <div key={detail.label}>
+                <span>{detail.label}</span>
+                <p>{detail.text}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="fixed-rules">
+            <h3>全程固定条件</h3>
+            <ul>
+              <li>除8/27青森屋外，其余夜晚默认车中休息。</li>
+              <li>PHEV本次不考虑充电，仅按加油安排。</li>
+              <li>删除下北半岛整段，不绘制为路线。</li>
+              <li>五色沼、鸣子峡与三陆三景必须保留。</li>
+              <li>返程固定使用三陆沿岸道路 E45。</li>
+            </ul>
+          </div>
         </aside>
-
-        <div className="map-stage">
-          <div className="map-toolbar" aria-label="地图控制">
-            <button type="button" aria-label="放大地图" onClick={() => zoomAt(view.scale * 1.35)}>＋</button>
-            <button type="button" aria-label="缩小地图" onClick={() => zoomAt(view.scale / 1.35)}>−</button>
-            <button type="button" className="reset-button" onClick={() => setView({ scale: 1, x: 0, y: 0 })}>全程</button>
-          </div>
-          <svg
-            ref={svgRef}
-            className="route-map"
-            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-            role="img"
-            aria-labelledby="map-title map-desc"
-            onWheel={(event) => { event.preventDefault(); zoomAt(view.scale * (event.deltaY < 0 ? 1.18 : 0.84), clientToMap(event.clientX, event.clientY)); }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-          >
-            <title id="map-title">8月23日至29日日本东北自驾路线图</title>
-            <desc id="map-desc">蓝线为东京至青森屋的去程，紫线为三陆沿岸道路返程，虚线为八甲田候选路线。</desc>
-            <rect width={WIDTH} height={HEIGHT} className="ocean" />
-            <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
-              {(geoData.features as typeof geoData.features).map((feature) => (
-                <path key={feature.properties.name} d={geography.path(feature as unknown as GeoPermissibleObjects) ?? ""} className="prefecture" vectorEffect="non-scaling-stroke" />
-              ))}
-              {(geoData.features as typeof geoData.features).map((feature) => {
-                const center = geography.projection(geoCentroid(feature as unknown as GeoPermissibleObjects));
-                if (!center) return null;
-                return <text key={`${feature.properties.name}-label`} x={center[0]} y={center[1]} className="prefecture-label">{prefectureNames[feature.properties.name]}</text>;
-              })}
-
-              <path d={geography.path({ type: "LineString", coordinates: outbound } as GeoPermissibleObjects) ?? ""} className={`route route-outbound ${selectedDay === "8/28" || selectedDay === "8/29" ? "is-muted" : ""}`} vectorEffect="non-scaling-stroke" />
-              <path d={geography.path({ type: "LineString", coordinates: returnRoute } as GeoPermissibleObjects) ?? ""} className={`route route-return ${["8/23", "8/24", "8/25", "8/26", "8/27"].includes(selectedDay) ? "is-muted" : ""}`} vectorEffect="non-scaling-stroke" />
-              <path d={geography.path({ type: "LineString", coordinates: optionalRoute } as GeoPermissibleObjects) ?? ""} className="route route-optional" vectorEffect="non-scaling-stroke" />
-
-              {stops.map((stop) => {
-                const point = geography.projection(stop.coords);
-                if (!point) return null;
-                const isVisible = selectedDay === "全部" || stop.day === selectedDay;
-                const isSelected = stop.id === selectedId;
-                return (
-                  <g key={stop.id} className={`map-stop kind-${stop.kind} ${isVisible ? "" : "is-dim"} ${isSelected ? "is-selected" : ""}`} transform={`translate(${point[0]} ${point[1]})`} onClick={(event) => { event.stopPropagation(); setSelectedId(stop.id); }} role="button" aria-label={`${stop.name}，${stop.day}`}>
-                    <circle r={isSelected ? 10 : 7} className="marker-halo" vectorEffect="non-scaling-stroke" />
-                    <circle r={isSelected ? 6 : 4.5} className="marker-core" vectorEffect="non-scaling-stroke" />
-                    <text x={stop.coords[0] > 141.2 ? -12 : 12} y={4} textAnchor={stop.coords[0] > 141.2 ? "end" : "start"} className="stop-label">{stop.shortName}</text>
-                  </g>
-                );
-              })}
-            </g>
-          </svg>
-          <div className="legend" aria-label="地图图例">
-            <span><i className="line outbound" /> 去程</span>
-            <span><i className="line returning" /> 三陆返程 E45</span>
-            <span><i className="line optional" /> 候选</span>
-          </div>
-          <p className="map-hint">滚轮或双指缩放 · 拖动平移 · 点击标注查看详情</p>
-        </div>
       </section>
 
       <footer>
-        <span>路线用于行程概览，不替代实时导航。</span>
-        <span>地图边界：国土数值信息，经简化并内置</span>
+        <p>路线用于行程规划展示，不替代当天实时导航、道路管制及天气判断。</p>
+        <p>离线包包含地图层、路线与完整行程文字。</p>
       </footer>
     </main>
   );

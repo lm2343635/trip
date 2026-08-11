@@ -1,5 +1,5 @@
-const CACHE = "tohoku-trip-v1";
-const CORE = ["/", "/manifest.webmanifest", "/favicon.svg"];
+const CACHE = "tohoku-trip-v2";
+const CORE = ["/", "/manifest.webmanifest", "/favicon.svg", "/og-v2.png", "/offline-assets.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
@@ -9,7 +9,11 @@ self.addEventListener("install", (event) => {
     const assets = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
       .map((match) => match[1])
       .filter((url) => url.startsWith("/") && !url.startsWith("//"));
-    await cache.addAll([...new Set([...CORE, ...assets])]);
+    const offlineAssets = await fetch("/offline-assets.json").then((item) => item.json());
+    const allAssets = [...new Set([...CORE, ...assets, ...offlineAssets])];
+    for (let index = 0; index < allAssets.length; index += 12) {
+      await cache.addAll(allAssets.slice(index, index + 12));
+    }
     await self.skipWaiting();
   })());
 });
